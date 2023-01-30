@@ -14,12 +14,19 @@
     <div class="content">
       <div class="card-grid">
         <div class="card">
-          <p class="card-title"><i class="fas fa-lightbulb"></i> GPIO 2</p>
+          <p class="card-title"><i class="fas fa-lightbulb"></i> LED</p>
           <p>
-            <a href="on"><button class="button-on">ON</button></a>
-            <a href="off"><button class="button-off">OFF</button></a>
+            <a href="led_on"><button class="button-on">ON</button></a>
+            <a href="led_off"><button class="button-off">OFF</button></a>
           </p>
-          <p class="state">State: %STATE%</p>
+          <p class="state">LED is currently: %LED_STATE%</p>
+        </div>
+        <div class="card">
+          <p class="card-title"><i class="fas fa-cloud"></i> MQTT</p>
+          <p>
+            <a href="mqtt_setup"><button class="button-on">Setup</button></a>
+          </p>
+          <p class="state">MQTT is currently: %MQTT_STATE%</p>
         </div>
       </div>
     </div>

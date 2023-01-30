@@ -7,19 +7,45 @@
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 
-// Search for parameter in HTTP POST request
+
+// MQTT
+
+// MQTT HTTP POST request
+const char* MQTT_PARAM_INPUT_1 = "server";
+const char* MQTT_PARAM_INPUT_2 = "username";
+const char* MQTT_PARAM_INPUT_3 = "password";
+const char* MQTT_PARAM_INPUT_4 = "hostname";
+const char* MQTT_PARAM_INPUT_5 = "topic";
+const int MQTT_PORT = 18345;
+
+// MQTT Variables
+String mqttServer;
+String mqttUsername;
+String mqttPassword;
+String mqttHostname;
+String mqttTopic;
+
+// MQTT Paths
+const char* mqttServerPath = "/mqtt_server.txt";
+const char* mqttUsernamePath = "/mqtt_username.txt";
+const char* mqttPasswordPath = "/mqtt_password.txt";
+const char* mqttHostnamePath = "/mqtt_hostname.txt";
+const char* mqttTopicPath = "/mqtt_topic.txt";
+
+
+// WiFi Setup HTTP POST request
 const char* PARAM_INPUT_1 = "ssid";
 const char* PARAM_INPUT_2 = "pass";
 const char* PARAM_INPUT_3 = "ip";
 const char* PARAM_INPUT_4 = "gateway";
 
-//Variables to save values from HTML form
+// WiFi Setup Variables
 String ssid;
 String pass;
 String ip;
 String gateway;
 
-// File paths to save input values permanently
+// WiFi Setup Paths
 const char* ssidPath = "/ssid.txt";
 const char* passPath = "/pass.txt";
 const char* ipPath = "/ip.txt";
@@ -122,7 +148,7 @@ bool initWiFi() {
 
 // Replaces placeholder with LED state value
 String processor(const String& var) {
-  if(var == "STATE") {
+  if(var == "LED_STATE") {
     if(!digitalRead(ledPin)) {
       ledState = "ON";
     }
@@ -134,6 +160,10 @@ String processor(const String& var) {
 
   if(var == "IP") {
     return ip;
+  }
+
+  if(var == "MQTT_STATE") {
+    return mqttServer != "" ? "ENABLED" : "DISABLED";
   }
   
   return String();
@@ -149,7 +179,7 @@ void setup() {
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
   
-  // Load values saved in LittleFS
+  // Load WiFi Setup data
   ssid = readFile(LittleFS, ssidPath);
   pass = readFile(LittleFS, passPath);
   ip = readFile(LittleFS, ipPath);
@@ -158,6 +188,18 @@ void setup() {
   Serial.println(pass);
   Serial.println(ip);
   Serial.println(gateway);
+
+  // Load MQTT data  
+  mqttServer = readFile(LittleFS, mqttServerPath);
+  mqttUsername = readFile(LittleFS, mqttUsernamePath);
+  mqttPassword = readFile(LittleFS, mqttPasswordPath);
+  mqttHostname = readFile (LittleFS, mqttHostnamePath);
+  mqttTopic = readFile (LittleFS, mqttTopicPath);
+  Serial.println(mqttServer);
+  Serial.println(mqttUsername);
+  Serial.println(mqttPassword);
+  Serial.println(mqttHostname);
+  Serial.println(mqttTopic);
 
   if(initWiFi()) {
     // Route for root / web page
@@ -168,16 +210,74 @@ void setup() {
     server.serveStatic("/", LittleFS, "/");
     
     // Route to set GPIO state to HIGH
-    server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request) {
+    server.on("/led_on", HTTP_GET, [](AsyncWebServerRequest *request) {
       digitalWrite(ledPin, LOW);
       request->send(LittleFS, "/index.html", "text/html", false, processor);
     });
 
     // Route to set GPIO state to LOW
-    server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request) {
+    server.on("/led_off", HTTP_GET, [](AsyncWebServerRequest *request) {
       digitalWrite(ledPin, HIGH);
       request->send(LittleFS, "/index.html", "text/html", false, processor);
     });
+
+    // Route to setup MQTT
+    server.on("/mqtt_setup", HTTP_GET, [](AsyncWebServerRequest *request) {
+      digitalWrite(ledPin, HIGH);
+      request->send(LittleFS, "/mqtt_setup.html", "text/html");
+    });
+
+    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
+      int params = request->params();
+      for(int i=0;i<params;i++){
+        AsyncWebParameter* p = request->getParam(i);
+        if(p->isPost()){
+          // HTTP POST server value
+          if (p->name() == MQTT_PARAM_INPUT_1) {
+            mqttServer = p->value().c_str();
+            Serial.print("mqttServer set to: ");
+            Serial.println(mqttServer);
+            // Write file to save value
+            writeFile(LittleFS, mqttServerPath, mqttServer.c_str());
+          }
+          // HTTP POST username value
+          if (p->name() == MQTT_PARAM_INPUT_2) {
+            mqttUsername = p->value().c_str();
+            Serial.print("mqttUsername set to: ");
+            Serial.println(mqttUsername);
+            // Write file to save value
+            writeFile(LittleFS, mqttUsernamePath, mqttUsername.c_str());
+          }
+          // HTTP POST password value
+          if (p->name() == MQTT_PARAM_INPUT_3) {
+            mqttPassword = p->value().c_str();
+            Serial.print("mqttPassword set to: ");
+            Serial.println(mqttPassword);
+            // Write file to save value
+            writeFile(LittleFS, mqttPasswordPath, mqttPassword.c_str());
+          }
+          // HTTP POST hostname value
+          if (p->name() == MQTT_PARAM_INPUT_4) {
+            mqttHostname = p->value().c_str();
+            Serial.print("mqttHostname set to: ");
+            Serial.println(mqttHostname);
+            // Write file to save value
+            writeFile(LittleFS, mqttHostnamePath, mqttHostname.c_str());
+          }
+          // HTTP POST topic value
+          if (p->name() == MQTT_PARAM_INPUT_5) {
+            mqttTopic = p->value().c_str();
+            Serial.print("mqttTopic set to: ");
+            Serial.println(mqttTopic);
+            // Write file to save value
+            writeFile(LittleFS, mqttTopicPath, mqttTopic.c_str());
+          }
+          //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
+        }
+      }
+      request->send(LittleFS, "/index.html", "text/html", false, processor);
+    });
+    
     server.begin();
   }
   else {
