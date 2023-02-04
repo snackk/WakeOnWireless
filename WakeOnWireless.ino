@@ -1,17 +1,21 @@
-#include <Arduino.h>
 #include <ESP8266WiFi.h>
+
 #include <ESPAsyncWebServer.h>
 #include <ESPAsyncTCP.h>
+
+#include <PubSubClient.h>
+#include <CertStoreBearSSL.h>
+#include <time.h>
+#include <TZ.h>
+
 #include "LittleFS.h"
-#include <AsyncMqttClient.h>
 #include <Ticker.h>
 
-// AsyncWebServer on port 80
-AsyncWebServer server(80);
-
 // MQTT
-AsyncMqttClient mqttClient;
+WiFiClientSecure espClient;
+PubSubClient * client;
 Ticker mqttReconnectTimer;
+BearSSL::CertStore certStore;
 
 // MQTT HTTP POST request
 const char* MQTT_PARAM_INPUT_1 = "server";
@@ -19,7 +23,7 @@ const char* MQTT_PARAM_INPUT_2 = "username";
 const char* MQTT_PARAM_INPUT_3 = "password";
 const char* MQTT_PARAM_INPUT_4 = "hostname";
 const char* MQTT_PARAM_INPUT_5 = "topic";
-const int MQTT_PORT = 18345;
+const int MQTT_PORT = 8883;
 
 // MQTT Variables
 String mqttServer;
@@ -86,20 +90,23 @@ void setup() {
 
   // Initialize WiFi (STATION MODE OR ACCESS POINT)
   initWiFi();
-  delay(5000);
 
-  // Initialize Web Server
-  bool isStation = WiFi.isConnected();
-  initAsyncWebServer(isStation);
+  // Initialize Web Server 
+  initAsyncWebServer(WiFi.isConnected());
 
+  // Initialize MQTTT
+  setDateTime();
+  readMqttData();
   initMQTT();
 }
 
 void loop() {
-  if (restart){
+  if (restart) {
     delay(5000);
     ESP.restart();
-  }
+  } 
+  
+  mqqtLoop();
 }
 
 // Initialize LittleFS
@@ -128,7 +135,7 @@ String readFile(fs::FS &fs, const char * path){
   File file = fs.open(path, "r");
   if(!file || file.isDirectory()){
     Serial.println("- failed to open file for reading");
-    return String();
+    return "";
   }
 
   String fileContent;
@@ -165,12 +172,8 @@ void initWiFi() {
   pass = readFile(LittleFS, passPath);
   ip = readFile(LittleFS, ipPath);
   gateway = readFile (LittleFS, gatewayPath);
-  Serial.println(ssid);
-  Serial.println(pass);
-  Serial.println(ip);
-  Serial.println(gateway);
-
-  if(ssid=="" || ip=="") {
+  
+  if(ssid == "" || ip == "") {
     Serial.println("Access Point Mode");
     // NULL sets an open Access Point
     WiFi.softAP("WoW - AP", NULL);
@@ -178,35 +181,39 @@ void initWiFi() {
     IPAddress IP = WiFi.softAPIP();
     Serial.print("AP IP address: ");
     Serial.println(IP);
-  
   } else {
+    
     Serial.println("Station Mode");
-    WiFi.mode(WIFI_STA);
-    localIP.fromString(ip.c_str());
-    localGateway.fromString(gateway.c_str());
+    //WiFi.mode(WIFI_STA);
+    //localIP.fromString(ip.c_str());
+    //localGateway.fromString(gateway.c_str());
   
-    if (!WiFi.config(localIP, localGateway, subnet)) {
-      Serial.println("STA Failed to configure");
-      return;
-    }
+    //if (!WiFi.config(localIP, localGateway, subnet)) {
+    //  Serial.println("STA Failed to configure");
+    //  return;
+    //}
   
     // WiFi Handler Setup
     wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
     wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
     
     WiFi.begin(ssid.c_str(), pass.c_str());
-    Serial.println("Connecting to WiFi");
+    Serial.printf("Connecting to WiFi: %s", ssid.c_str());
+    while (WiFi.status() != WL_CONNECTED) {
+      Serial.print(".");
+      delay(500);
+    }
+    Serial.println();
   }
 }
 
 // WiFi Handlers
 void onWifiConnect(const WiFiEventStationModeGotIP& event) {
-  Serial.printf("Connected to WiFi with IP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("\nConnected to WiFi with IP: %s\n", WiFi.localIP().toString().c_str());
 }
 
 void onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
   Serial.println("Disconnected from WiFi");
-  //mqttReconnectTimer.detach(); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
   wifiReconnectTimer.once(2, initWiFi);
 }
 
@@ -228,7 +235,7 @@ String processor(const String& var) {
   }
 
   if(var == "MQTT_STATE") {
-    return mqttClient.connected() ? "ENABLED" : "DISABLED";
+    return client != NULL ? (client->connected() ? "ENABLED" : "DISABLED") : "DISABLED";
   }
   
   return String();
@@ -373,103 +380,94 @@ void initAsyncWebServer(bool isWifiConnected) {
 
 // MQTT
 void initMQTT() {
-  // Load MQTT data
-  mqttServer = readFile(LittleFS, mqttServerPath);
+  
   if(mqttServer == "") {
     return;  
   }
+  
+  // Load MQTT certs
+  int numCerts = certStore.initCertStore(LittleFS, PSTR("/certs.idx"), PSTR("/certs.ar"));
+  Serial.printf("Number of CA certs read: %d\n", numCerts);
+  if (numCerts == 0) {
+    Serial.printf("No certs found. Did you run certs-from-mozilla.py and upload the LittleFS directory before running?\n");
+    return; // Can't connect to anything w/o certs!
+  }
+
+  BearSSL::WiFiClientSecure *bear = new BearSSL::WiFiClientSecure();
+  // Integrate the cert store with this connection
+  bear->setCertStore(&certStore);
+
+  Serial.println("Setting MQTT server: " + mqttServer + ", port: " + String(MQTT_PORT));
+  client = new PubSubClient(*bear);
+  client->setServer(mqttServer.c_str(), MQTT_PORT);
+  client->setCallback(callback);
+}
+
+void readMqttData() {
+  mqttServer = readFile(LittleFS, mqttServerPath);  
   mqttUsername = readFile(LittleFS, mqttUsernamePath);
   mqttPassword = readFile(LittleFS, mqttPasswordPath);
   mqttHostname = readFile(LittleFS, mqttHostnamePath);
   mqttTopic = readFile (LittleFS, mqttTopicPath);
-  Serial.println(mqttServer);
-  Serial.println(mqttUsername);
-  Serial.println(mqttPassword);
-  Serial.println(mqttHostname);
-  Serial.println(mqttTopic);
+}
 
-  // MQTT Handler Setup
-  mqttClient.onConnect(onMqttConnect);
-  mqttClient.onDisconnect(onMqttDisconnect);
-  mqttClient.onSubscribe(onMqttSubscribe);
-  mqttClient.onUnsubscribe(onMqttUnsubscribe);
-  mqttClient.onMessage(onMqttMessage);
-  mqttClient.onPublish(onMqttPublish);
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
 
-  if(mqttServer != "") {
-    mqttClient.setServer(mqttServer.c_str(), MQTT_PORT);
-    Serial.printf("Connecting for server:%s and port %d\n", mqttServer.c_str(), MQTT_PORT);
-    mqttClient.setCredentials(mqttUsername.c_str(), mqttPassword.c_str());
-    Serial.printf("Connecting with user:%s and port %s\n", mqttUsername.c_str(), mqttPassword.c_str());
-    //mqttClient.setClientId(mqttHostname.c_str());
-    connectToMqtt();
+void mqqtLoop() {
+  if(mqttServer == "") {
+    return;  
+  }
+  
+  if(WiFi.status() == WL_CONNECTED) {
+    if (client->connected()) {
+      client->loop();
+    } else {
+      reconnect();
+    }
   }
 }
 
-void connectToMqtt() {
-  Serial.println("Connecting to MQTT...");
-  mqttClient.connect();
-}
-
-void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
-  Serial.println("Disconnected from MQTT.");
-
-  if (WiFi.isConnected()) {
-    mqttReconnectTimer.once(2, connectToMqtt);
+void reconnect() {
+  Serial.print("Attempting MQTT connection");
+  while (!client->connected()) {
+    Serial.print(".");  
+    if (client->connect(mqttHostname.c_str(), mqttUsername.c_str(), mqttPassword.c_str())) {
+      Serial.println();
+      Serial.println("MQTT connected to: " + mqttServer);
+      
+      //client->publish("testTopic", "hello world");
+      Serial.println("MQTT subscribing topic: " + mqttTopic);
+      client->subscribe(mqttTopic.c_str());
+    } else {
+      Serial.print("MQTT connection failed! rc: ");
+      Serial.print(client->state());
+      Serial.println("retry again in 5 seconds");
+      delay(5000);
+    }
   }
 }
 
-void onMqttConnect(bool sessionPresent) {
-  Serial.println("Connected to MQTT.");
-  Serial.print("Session present: ");
-  Serial.println(sessionPresent);
-  uint16_t packetIdSub = mqttClient.subscribe(mqttTopic.c_str(), 2);
-  Serial.print("Subscribing at QoS 2, packetId: ");
-  Serial.println(packetIdSub);
-  mqttClient.publish(mqttTopic.c_str(), 0, true, "test 1");
-  Serial.println("Publishing at QoS 0");
-  uint16_t packetIdPub1 = mqttClient.publish(mqttTopic.c_str(), 1, true, "test 2");
-  Serial.print("Publishing at QoS 1, packetId: ");
-  Serial.println(packetIdPub1);
-  uint16_t packetIdPub2 = mqttClient.publish(mqttTopic.c_str(), 2, true, "test 3");
-  Serial.print("Publishing at QoS 2, packetId: ");
-  Serial.println(packetIdPub2);
-}
+void setDateTime() {
+  configTime(TZ_Europe_Berlin, "pool.ntp.org", "time.nist.gov");
 
-void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
-  Serial.println("Subscribe acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-  Serial.print("  qos: ");
-  Serial.println(qos);
-}
+  Serial.print("Waiting for NTP to sync");
+  time_t now = time(nullptr);
+  while (now < 8 * 3600 * 2) {
+    delay(100);
+    Serial.print(".");
+    now = time(nullptr);
+  }
+  Serial.println();
 
-void onMqttUnsubscribe(uint16_t packetId) {
-  Serial.println("Unsubscribe acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-}
-
-void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
-  Serial.println("Publish received.");
-  Serial.print("  topic: ");
-  Serial.println(topic);
-  Serial.print("  qos: ");
-  Serial.println(properties.qos);
-  Serial.print("  dup: ");
-  Serial.println(properties.dup);
-  Serial.print("  retain: ");
-  Serial.println(properties.retain);
-  Serial.print("  len: ");
-  Serial.println(len);
-  Serial.print("  index: ");
-  Serial.println(index);
-  Serial.print("  total: ");
-  Serial.println(total);
-}
-
-void onMqttPublish(uint16_t packetId) {
-  Serial.println("Publish acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
+  struct tm timeinfo;
+  gmtime_r(&now, &timeinfo);
+  Serial.printf("Current time is: %s %s", tzname[0], asctime(&timeinfo));
 }
