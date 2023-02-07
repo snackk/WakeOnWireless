@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" type="text/css" href="style.css">
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v6.2.1/css/all.css">
   </head>
   <body>
     <div class="topnav">
       <h1>WoW - Dashboard</h1>
-    </div>
+</div>
+
     <div class="content">
       <div class="card-grid">
         <div class="card">
@@ -19,14 +20,21 @@
             <a href="led_on"><button class="button-on">ON</button></a>
             <a href="led_off"><button class="button-off">OFF</button></a>
           </p>
-          <p class="state">LED is currently: %LED_STATE%</p>
+          <p class="state">Led is currently: %LED_STATE%</p>
         </div>
         <div class="card">
           <p class="card-title"><i class="fas fa-cloud"></i> MQTT</p>
           <p>
-            <a href="mqtt_setup"><button class="button-on">Setup</button></a>
+            <a href="mqtt_setup"><button class="button-off">Setup</button></a>
           </p>
           <p class="state">MQTT is currently: %MQTT_STATE%</p>
+        </div>
+        <div class="card">
+          <p class="card-title"><i class="fas fa-rotate-right"></i> Firmware Upgrade</p>
+          <p>
+            <a href="update"><button class="button-off">Setup</button></a>
+          </p>
+          <p class="state">Current version: %VERSION%</p>
         </div>
       </div>
     </div>

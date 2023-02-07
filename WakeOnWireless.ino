@@ -11,6 +11,13 @@
 #include "LittleFS.h"
 #include <Ticker.h>
 
+#include <AsyncElegantOTA.h>
+
+const char* VERSION = "1.0.1";
+
+// AsyncWebServer on port 80
+AsyncWebServer server(80);
+
 // MQTT
 WiFiClientSecure espClient;
 PubSubClient * client;
@@ -47,29 +54,14 @@ Ticker wifiReconnectTimer;
 // WiFi Setup HTTP POST request
 const char* PARAM_INPUT_1 = "ssid";
 const char* PARAM_INPUT_2 = "pass";
-const char* PARAM_INPUT_3 = "ip";
-const char* PARAM_INPUT_4 = "gateway";
 
 // WiFi Setup Variables
 String ssid;
 String pass;
-String ip;
-String gateway;
 
 // WiFi Setup Paths
 const char* ssidPath = "/ssid.txt";
 const char* passPath = "/pass.txt";
-const char* ipPath = "/ip.txt";
-const char* gatewayPath = "/gateway.txt";
-
-// WiFi Ip 
-IPAddress localIP;
-IPAddress localGateway;
-IPAddress subnet(255, 255, 0, 0);
-
-// Timer variables
-unsigned long previousMillis = 0;
-const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
 
 // GPIO LED
 const int ledPin = 2;
@@ -95,9 +87,11 @@ void setup() {
   initAsyncWebServer(WiFi.isConnected());
 
   // Initialize MQTTT
-  setDateTime();
-  readMqttData();
-  initMQTT();
+  if(WiFi.isConnected()) {
+    setDateTime();
+    readMqttData();
+    initMQTT();
+  }
 }
 
 void loop() {
@@ -170,12 +164,9 @@ void initWiFi() {
   // Load WiFi data
   ssid = readFile(LittleFS, ssidPath);
   pass = readFile(LittleFS, passPath);
-  ip = readFile(LittleFS, ipPath);
-  gateway = readFile (LittleFS, gatewayPath);
   
-  if(ssid == "" || ip == "") {
+  if(ssid == "" || pass == "") {
     Serial.println("Access Point Mode");
-    // NULL sets an open Access Point
     WiFi.softAP("WoW - AP", NULL);
 
     IPAddress IP = WiFi.softAPIP();
@@ -184,14 +175,7 @@ void initWiFi() {
   } else {
     
     Serial.println("Station Mode");
-    //WiFi.mode(WIFI_STA);
-    //localIP.fromString(ip.c_str());
-    //localGateway.fromString(gateway.c_str());
-  
-    //if (!WiFi.config(localIP, localGateway, subnet)) {
-    //  Serial.println("STA Failed to configure");
-    //  return;
-    //}
+    WiFi.mode(WIFI_STA);
   
     // WiFi Handler Setup
     wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
@@ -230,18 +214,24 @@ String processor(const String& var) {
     return ledState;
   }
 
+  //TODO - This isn't doing anything atm.
   if(var == "IP") {
-    return ip;
+    return "aaaa";
   }
 
   if(var == "MQTT_STATE") {
     return client != NULL ? (client->connected() ? "ENABLED" : "DISABLED") : "DISABLED";
+  }
+
+  if(var == "VERSION") {
+    return VERSION;
   }
   
   return String();
 }
 
 void initAsyncWebServer(bool isWifiConnected) {
+  AsyncElegantOTA.begin(&server);
   if(isWifiConnected) {
     // Route for root / web page
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -321,8 +311,7 @@ void initAsyncWebServer(bool isWifiConnected) {
     });
 
     server.begin();
-  }
-  else {
+  } else {
     // Web Server Root URL
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
       request->send(LittleFS, "/wifi_setup.html", "text/html");
@@ -350,22 +339,6 @@ void initAsyncWebServer(bool isWifiConnected) {
             Serial.println(pass);
             // Write file to save value
             writeFile(LittleFS, passPath, pass.c_str());
-          }
-          // HTTP POST ip value
-          if (p->name() == PARAM_INPUT_3) {
-            ip = p->value().c_str();
-            Serial.print("IP Address set to: ");
-            Serial.println(ip);
-            // Write file to save value
-            writeFile(LittleFS, ipPath, ip.c_str());
-          }
-          // HTTP POST gateway value
-          if (p->name() == PARAM_INPUT_4) {
-            gateway = p->value().c_str();
-            Serial.print("Gateway set to: ");
-            Serial.println(gateway);
-            // Write file to save value
-            writeFile(LittleFS, gatewayPath, gateway.c_str());
           }
           //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
         }
