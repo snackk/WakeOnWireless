@@ -243,6 +243,7 @@ void initAsyncWebServer(bool isWifiConnected) {
     // Route to set GPIO state to HIGH
     server.on("/led_on", HTTP_GET, [](AsyncWebServerRequest *request) {
       digitalWrite(ledPin, LOW);
+      ESP.deepSleep(30e6);
       request->send(LittleFS, "/index.html", "text/html", false, processor);
     });
 
