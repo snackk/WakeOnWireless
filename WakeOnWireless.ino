@@ -13,7 +13,9 @@
 
 #include <AsyncElegantOTA.h>
 
-const char* VERSION = "1.0.1";
+#include <arduino_homekit_server.h>
+
+const char* VERSION = "1.1.0";
 
 // AsyncWebServer on port 80
 AsyncWebServer server(80);
@@ -91,6 +93,9 @@ void setup() {
     setDateTime();
     readMqttData();
     initMQTT();
+
+    // Initialize AppleHomeKit
+    appleHomekitSetup();
   }
 }
 
@@ -98,9 +103,11 @@ void loop() {
   if (restart) {
     delay(5000);
     ESP.restart();
-  } 
-  
+  }
+
+  // Loop MQTTT & Apple HomeKit
   mqqtLoop();
+  appleHomekitLoop();
 }
 
 // Initialize LittleFS
@@ -443,4 +450,40 @@ void setDateTime() {
   struct tm timeinfo;
   gmtime_r(&now, &timeinfo);
   Serial.printf("Current time is: %s %s", tzname[0], asctime(&timeinfo));
+}
+
+//==============================
+// HomeKit setup and loop
+//==============================
+
+// access your HomeKit characteristics defined in my_accessory.c
+extern "C" homekit_server_config_t config;
+extern "C" homekit_characteristic_t cha_switch_on;
+
+static uint32_t next_heap_millis = 0;
+
+#define PIN_SWITCH 2
+
+//Called when the switch value is changed by iOS Home APP
+void cha_switch_on_setter(const homekit_value_t value) {
+  bool on = value.bool_value;
+  cha_switch_on.value.bool_value = on;  //sync the value
+  digitalWrite(PIN_SWITCH, on ? LOW : HIGH);
+}
+
+void appleHomekitSetup() {
+  pinMode(PIN_SWITCH, OUTPUT);
+  digitalWrite(PIN_SWITCH, HIGH);
+  
+  cha_switch_on.setter = cha_switch_on_setter;
+  arduino_homekit_setup(&config);
+}
+
+void appleHomekitLoop() {
+  arduino_homekit_loop();
+  const uint32_t t = millis();
+  if (t > next_heap_millis) {
+    next_heap_millis = t + 5 * 1000;
+    Serial.printf("Free heap: %d, HomeKit clients: %d \n", ESP.getFreeHeap(), arduino_homekit_connected_clients_count());
+  }
 }
