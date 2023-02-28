@@ -254,7 +254,6 @@ void initAsyncWebServer(bool isWifiConnected) {
 
     // Route to setup MQTT
     server.on("/mqtt_setup", HTTP_GET, [](AsyncWebServerRequest *request) {
-      digitalWrite(ledPin, HIGH);
       request->send(LittleFS, "/mqtt_setup.html", "text/html");
     });
 
