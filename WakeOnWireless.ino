@@ -90,19 +90,19 @@ void setup() {
   initWiFi();
 
   // Initialize Web Server 
-  initAsyncWebServer(WiFi.isConnected());
+  //initAsyncWebServer(WiFi.isConnected());
 
   if(WiFi.isConnected()) {
 
     // Initialize Clock
-    initializeDateTime();
+    //initializeDateTime();
 
     // Initialize Alexa
     initAlexa();
 
     // Initialize MQTTT
-    readMqttData();
-    initMQTT();
+    //readMqttData();
+    //initMQTT();
   }
 }
 
@@ -112,7 +112,7 @@ void loop() {
     ESP.restart();
   } 
   
-  mqqtLoop();
+  //mqqtLoop();
   fauxmo.handle();
 }
 
