@@ -13,7 +13,13 @@
 
 #include <AsyncElegantOTA.h>
 
+#include "fauxmoESP.h"
+
 const char* VERSION = "1.0.1";
+
+//ALEXA SKILL
+fauxmoESP fauxmo;
+const char* ALEXA_DEVICE_NAME = "sousa";
 
 // AsyncWebServer on port 80
 AsyncWebServer server(80);
@@ -86,9 +92,15 @@ void setup() {
   // Initialize Web Server 
   initAsyncWebServer(WiFi.isConnected());
 
-  // Initialize MQTTT
   if(WiFi.isConnected()) {
-    setDateTime();
+
+    // Initialize Clock
+    initializeDateTime();
+
+    // Initialize Alexa
+    initAlexa();
+
+    // Initialize MQTTT
     readMqttData();
     initMQTT();
   }
@@ -101,6 +113,25 @@ void loop() {
   } 
   
   mqqtLoop();
+  fauxmo.handle();
+}
+
+void initAlexa() {
+  fauxmo.addDevice("SOUSA");
+  
+  fauxmo.setPort(80);
+  fauxmo.enable(true);
+  Serial.printf("Fauxmo Setup Done");
+
+  fauxmo.onSetState([](unsigned char device_id, const char* device_name, bool state, unsigned char value) {
+
+    Serial.printf("Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
+    if (state) {
+      digitalWrite(ledPin, LOW);
+    } else {
+      digitalWrite(ledPin, HIGH);
+    }
+  });
 }
 
 // Initialize LittleFS
@@ -427,7 +458,7 @@ void reconnect() {
   }
 }
 
-void setDateTime() {
+void initializeDateTime() {
   configTime(TZ_Europe_Berlin, "pool.ntp.org", "time.nist.gov");
 
   Serial.print("Waiting for NTP to sync");
