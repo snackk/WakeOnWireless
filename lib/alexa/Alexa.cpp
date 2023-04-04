@@ -17,5 +17,5 @@ void AlexaClass::initAlexa(std::function<void(bool)> onMessageFunc) {
 }
 
 void AlexaClass::loopAlexa() {
-    fauxmo.handle();
+    fauxmo.handle(); 
 }
