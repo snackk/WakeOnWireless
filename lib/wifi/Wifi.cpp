@@ -15,6 +15,8 @@ void WifiClass::initWiFi(AsyncWebServer *server) {
         IPAddress IP = WiFi.softAPIP();
         Serial.print("AP IP address: ");
         Serial.println(IP);
+        
+        // This should be done elsewhere
         this->initWebServer();
     } else {
         

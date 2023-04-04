@@ -4,6 +4,9 @@ MqttClass Mqtt;
 
 void MqttClass::initMQTT(AsyncWebServer *server) {
   this->server = server;
+
+  // This should be done elsewhere
+  this->initWebServer();  
   
   initDateTime();
   readMqttData();
@@ -135,6 +138,6 @@ void MqttClass::initWebServer() {
         }
       }
       //restart = true;
-      //request->send(LittleFS, "/index.html", "text/html", false, processor);
+      request->send(LittleFS, "/index.html", "text/html", false);//, processor);
     });
 }
