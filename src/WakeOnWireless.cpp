@@ -9,7 +9,6 @@
 #include <Mqtt.h>
 #include <Wifi.h>
 
-
 const char* VERSION = "1.0.1";
 
 // AsyncWebServer on port 80
