@@ -9,7 +9,7 @@
 #include <Mqtt.h>
 #include <Wifi.h>
 
-const char* VERSION = "1.0.1";
+const char* VERSION = "1.0.9";
 
 // AsyncWebServer on port 80
 AsyncWebServer server(80);
@@ -18,12 +18,16 @@ AsyncWebServer server(80);
 const int ledPin = 2;
 String ledState;
 
+// GPIO switch
+const int WOL = 20;
+
 // ESP restart
 boolean restart = false;
 
 void initAsyncWebServer(bool isWifiConnected);
 String processor(const String& var);
 void initGPIO();
+void pushPwr();
 
 void setup() {
   // Initialize Serial port
@@ -74,6 +78,9 @@ void initGPIO() {
   // Set GPIO 2 as an OUTPUT
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
+
+  // Set GPIO 20 (switch) as an OUTPUT
+  pinMode(WOL, OUTPUT);
 }
 
 // Templating with HTML pages
@@ -114,6 +121,7 @@ void initAsyncWebServer(bool isWifiConnected) {
 
     // Route to set GPIO state to HIGH
     server.on("/led_on", HTTP_GET, [](AsyncWebServerRequest *request) {
+      pushPwr();
       digitalWrite(ledPin, LOW);
       request->send(LittleFS, "/index.html", "text/html", false, processor);
     });
@@ -129,4 +137,11 @@ void initAsyncWebServer(bool isWifiConnected) {
   
   server.serveStatic("/", LittleFS, "/");
   server.begin();
+}
+
+void pushPwr() {
+  // Set WOL as OUTPUT to turn on the PC
+  digitalWrite(WOL, HIGH);
+  delay(250);
+  digitalWrite(WOL, LOW);
 }
