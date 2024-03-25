@@ -13,6 +13,6 @@ In the figure bellow:
 
 <img width="451" alt="wol" src="https://user-images.githubusercontent.com/9936714/73220573-a9346e80-4156-11ea-9cc3-16674fdf1ef2.png">
 
-
+<img width="954" alt="Screenshot 2024-03-25 at 22 17 53" src="https://github.com/snackk/WakeOnWireless/assets/9936714/e2666c37-47e7-4006-8b00-f4744c9673b6">
   Written by [@snackk](https://github.com/snackk)
-<img width="1120" alt="Screenshot 2023-07-02 at 15 06 13" src="https://github.com/snackk/WakeOnWireless/assets/9936714/241ba884-4c6b-4ccb-81da-3e6c4793b971">
+
