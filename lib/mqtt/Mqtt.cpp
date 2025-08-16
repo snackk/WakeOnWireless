@@ -108,7 +108,7 @@ void MqttClass::initWebServer() {
     server->on("/", HTTP_POST, [this](AsyncWebServerRequest *request) {
       int params = request->params();
       for(int i = 0; i < params; i++) {
-        AsyncWebParameter* p = request->getParam(i);
+         const AsyncWebParameter* p = request->getParam(i);
 
         if(p->isPost()){
           if (p->name() == MQTT_PARAM_INPUT_1) {
