@@ -15,13 +15,14 @@ void WifiClass::initWiFi(AsyncWebServer *server) {
         IPAddress IP = WiFi.softAPIP();
         Serial.print("AP IP address: ");
         Serial.println(IP);
-        
-        // This should be done elsewhere
-        this->initWebServer();
     } else {
         
         Serial.println("Station Mode");
         WiFi.mode(WIFI_STA);
+
+        // Set up reliability settings
+        WiFi.setAutoReconnect(true);
+        WiFi.persistent(true);
     
         // WiFi Handler Setup
         wifiConnectHandler = WiFi.onStationModeGotIP([this](const WiFiEventStationModeGotIP& event) {
@@ -30,50 +31,74 @@ void WifiClass::initWiFi(AsyncWebServer *server) {
         wifiDisconnectHandler = WiFi.onStationModeDisconnected([this](const WiFiEventStationModeDisconnected& event) {
             this->onWifiDisconnect(event);
         });
-        
-        WiFi.begin(ssid.c_str(), pass.c_str());
-        Serial.printf("Connecting to WiFi: %s", ssid.c_str());
-        while (WiFi.status() != WL_CONNECTED) {
-          Serial.print(".");
-          delay(500);
-        }
-        Serial.println();
+
+        connectToWiFi();
     }
 }
 
 void WifiClass::onWifiConnect(const WiFiEventStationModeGotIP& event) {
     Serial.printf("\nConnected to WiFi with IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Signal strength: %d dBm\n", WiFi.RSSI());
+    
+    connectionAttempts = 0;  // Reset attempt counter
+    wifiConnectStartTime = 0; // Reset connection timer
+}
+
+void WifiClass::connectToWiFi() {
+    Serial.printf("Connecting to WiFi: %s\n", ssid.c_str());
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    
+    // Set connection timeout
+    wifiConnectStartTime = millis();
+    connectionAttempts++;
+    
+    Serial.print("Connection attempt #");
+    Serial.println(connectionAttempts);
 }
 
 void WifiClass::onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
-  Serial.println("Disconnected from WiFi");
-  //wifiReconnectTimer.once(2, initWiFi);
+    Serial.printf("Disconnected from WiFi. Reason: %d\n", event.reason);
+    
+    // Don't immediately reconnect if we're switching to AP mode
+    if (connectionAttempts < MAX_WIFI_ATTEMPTS) {
+        Serial.println("Attempting to reconnect in 5 seconds...");
+        // Use a timer or delay in main loop to reconnect
+        shouldReconnect = true;
+        lastDisconnectTime = millis();
+    } else {
+        Serial.println("Max connection attempts reached. Switching to AP mode...");
+        switchToAPMode();
+    }
 }
 
-void WifiClass::initWebServer() {
-
-    server->on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-      request->send(LittleFS, "/wifi_setup.html", "text/html");
-    });
-
-    server->on("/", HTTP_POST, [this](AsyncWebServerRequest *request) {
-      int params = request->params();
-      for(int i = 0; i < params; i++){
-         const AsyncWebParameter* p = request->getParam(i);
+void WifiClass::handleWiFiReconnection() {
+    // Check for connection timeout during initial connection
+    if (WiFi.status() != WL_CONNECTED && 
+        wifiConnectStartTime > 0 && 
+        millis() - wifiConnectStartTime > WIFI_TIMEOUT) {
         
-        if(p->isPost()){
-          if (p->name() == PARAM_INPUT_1) {
-            ssid = p->value().c_str();
-            Filesys.writeFile(ssidPath, ssid.c_str());
-          }
-
-          if (p->name() == PARAM_INPUT_2) {
-            pass = p->value().c_str();
-            Filesys.writeFile(passPath, pass.c_str());
-          }
+        Serial.println("WiFi connection timeout");
+        wifiConnectStartTime = 0;
+        
+        if (connectionAttempts < MAX_WIFI_ATTEMPTS) {
+            connectToWiFi();
+        } else {
+            Serial.println("Max attempts reached, switching to AP mode");
+            switchToAPMode();
         }
-      }
-      //restart = true;
-      request->send(LittleFS, "/wifi_setup_success.html", "text/html", false);//, processor);
-    });
+    }
+    
+    // Handle reconnection after disconnect
+    if (shouldReconnect && millis() - lastDisconnectTime > RECONNECT_DELAY) {
+        shouldReconnect = false;
+        connectToWiFi();
+    }
+}
+
+void WifiClass::switchToAPMode() {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP("WoW - AP", NULL);
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print("Switched to AP mode. IP: ");
+    Serial.println(IP);
 }

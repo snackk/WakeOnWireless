@@ -23,30 +23,30 @@ String ledState;
 
 
 // GPIO switch
-const int WOL = 20;
+const int WOL = 5;
 
 
 // ESP restart
 boolean restart = false;
 
 
-void initAsyncWebServer(bool isWifiConnected);
+void initAsyncWebServer();
 String processor(const String& var);
 void initGPIO();
 void pushPwr();
 
 
 void setup() {
+  // Initialize GPIO
+  initGPIO();
+
+
   // Initialize Serial port
   Serial.begin(115200);
 
 
   // Initialize File System
   Filesys.initFS();
-
-
-  // Initialize GPIO
-  initGPIO();
 
 
   // Initialize WiFi (STATION MODE OR ACCESS POINT)
@@ -57,7 +57,7 @@ void setup() {
   ElegantOTA.begin(&server);
   
   // Initialize Web Server 
-  initAsyncWebServer(WiFi.isConnected());
+  initAsyncWebServer();
 
 
   if(WiFi.isConnected()) {
@@ -77,6 +77,8 @@ void setup() {
 
 
 void loop() {
+  Wifi.handleWiFiReconnection();
+
   if (restart) {
     delay(5000);
     ESP.restart();
@@ -92,15 +94,13 @@ void loop() {
 
 // Initialize GPIO
 void initGPIO() {
-
+  // Set GPIO 4 (switch) as an OUTPUT
+  pinMode(WOL, OUTPUT);
+  digitalWrite(WOL, LOW);
 
   // Set GPIO 2 as an OUTPUT
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
-
-
-  // Set GPIO 20 (switch) as an OUTPUT
-  pinMode(WOL, OUTPUT);
 }
 
 
@@ -137,40 +137,121 @@ String processor(const String& var) {
 }
 
 
-void initAsyncWebServer(bool isWifiConnected) {
-  if(isWifiConnected) {
-    // Dashboard
+void initAsyncWebServer() {
+    // Dynamic root handler - serves different pages based on WiFi status
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-      request->send(LittleFS, "/index.html", "text/html", false, processor);
+        if (WiFi.getMode() == WIFI_AP || WiFi.status() != WL_CONNECTED) {
+            // AP Mode or not connected - serve WiFi setup page
+            request->send(LittleFS, "/wifi_setup.html", "text/html");
+        } else {
+            // Connected to WiFi - serve main dashboard
+            request->send(LittleFS, "/index.html", "text/html", false, processor);
+        }
     });
 
-
-    // Route to set GPIO state to HIGH
+    // Control routes (only work when connected)
     server.on("/led_on", HTTP_GET, [](AsyncWebServerRequest *request) {
-      pushPwr();
-      digitalWrite(ledPin, LOW);
-      request->send(LittleFS, "/index.html", "text/html", false, processor);
+        if (WiFi.status() == WL_CONNECTED) {
+            pushPwr();
+            digitalWrite(ledPin, LOW);
+            request->send(LittleFS, "/index.html", "text/html", false, processor);
+        } else {
+            request->send(400, "text/plain", "WiFi not connected");
+        }
     });
 
-
-    // Route to set GPIO state to LOW
     server.on("/led_off", HTTP_GET, [](AsyncWebServerRequest *request) {
-      digitalWrite(ledPin, HIGH);
-      request->send(LittleFS, "/index.html", "text/html", false, processor);
+        if (WiFi.status() == WL_CONNECTED) {
+            digitalWrite(ledPin, HIGH);
+            request->send(LittleFS, "/index.html", "text/html", false, processor);
+        } else {
+            request->send(400, "text/plain", "WiFi not connected");
+        }
     });
 
+    // WiFi setup POST handler (works in AP mode)
+    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
+        String newSSID = "";
+        String newPass = "";
+        
+        int params = request->params();
+        for(int i = 0; i < params; i++){
+            const AsyncWebParameter* p = request->getParam(i);
+            
+            if(p->isPost()){
+                if (p->name() == "ssid") {
+                    newSSID = p->value();
+                    Filesys.writeFile("/ssid.txt", newSSID.c_str());
+                }
+                if (p->name() == "pass") {
+                    newPass = p->value();
+                    Filesys.writeFile("/pass.txt", newPass.c_str());
+                }
+            }
+        }
+        
+        request->send(LittleFS, "/wifi_setup_success.html", "text/html");
+        
+        // Restart to connect with new credentials
+        delay(2000);
+        ESP.restart();
+    });
 
+    // Status API endpoint
+    server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String json = "{";
+        json += "\"wifi_mode\":\"" + String(WiFi.getMode() == WIFI_AP ? "AP" : "STA") + "\",";
+        json += "\"connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
+        json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+        json += "\"ssid\":\"" + WiFi.SSID() + "\"";
+        json += "}";
+        request->send(200, "application/json", json);
+    });
+
+    // Serve static files
+    server.serveStatic("/", LittleFS, "/");
+    
+    // Start server
     server.begin();
-  }
-  
-  server.serveStatic("/", LittleFS, "/");
-  server.begin();
+    Serial.println("Dynamic web server started");
 }
 
 
+void pushPwr1() {
+    Serial.println("Power button triggered");
+    
+    // Ensure we start from OFF state
+    digitalWrite(WOL, HIGH);
+    delay(100);
+    
+    // Press and hold
+    digitalWrite(WOL, LOW);
+    Serial.println("Power button pressed");
+    delay(500);  // Try 500ms duration
+    
+    // Release
+    digitalWrite(WOL, HIGH);
+    Serial.println("Power button released");
+    
+    // Visual confirmation
+    digitalWrite(ledPin, HIGH);
+    delay(200);
+    digitalWrite(ledPin, LOW);
+}
+
 void pushPwr() {
-  // Set WOL as OUTPUT to turn on the PC
-  digitalWrite(WOL, HIGH);
-  delay(250);
-  digitalWrite(WOL, LOW);
+    Serial.println("Power button triggered");
+    
+    // Ensure we start from OFF state
+    digitalWrite(WOL, LOW);
+    delay(100);
+    
+    // Press and hold
+    digitalWrite(WOL, HIGH);
+    Serial.println("Power button pressed");
+    delay(500);  // Try 500ms duration
+    
+    // Release
+    digitalWrite(WOL, LOW);
+    Serial.println("Power button released");
 }

@@ -10,12 +10,23 @@ class WifiClass {
     
     public:
         void 
+            connectToWiFi(),
+            handleWiFiReconnection(),
+            switchToAPMode(),
             onWifiDisconnect(const WiFiEventStationModeDisconnected& event),
             onWifiConnect(const WiFiEventStationModeGotIP& event),
-            initWiFi(AsyncWebServer *server),
-            initWebServer();
+            initWiFi(AsyncWebServer *server);
     
     private:
+        static const int MAX_WIFI_ATTEMPTS = 3;
+        static const unsigned long WIFI_TIMEOUT = 30000;  // 30 seconds
+        static const unsigned long RECONNECT_DELAY = 5000;  // 5 seconds
+        
+        int connectionAttempts = 0;
+        unsigned long wifiConnectStartTime = 0;
+        unsigned long lastDisconnectTime = 0;
+        bool shouldReconnect = false;
+
         AsyncWebServer *server;
         // WiFi
         WiFiEventHandler wifiConnectHandler;
