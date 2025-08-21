@@ -1,50 +1,49 @@
-#ifndef Wifi_H_
-#define Wifi_H_
+#ifndef WIFI_H
+#define WIFI_H
 
 #include <ESPAsyncWebServer.h>
 #include <ESP8266WiFi.h>
-#include <Ticker.h>
 #include <Filesys.h>
 
 class WifiClass {
+private:
+    // Constants
+    static const unsigned long RECONNECT_DELAY = 10000;     // 10 seconds
+    static const unsigned long WIFI_TIMEOUT = 60000;       // 60 seconds
+    static const int MAX_WIFI_ATTEMPTS = 5;
+    static const int WEAK_SIGNAL_THRESHOLD = -80;           // dBm
+
+    AsyncWebServer* server;
+    String ssid;
+    String pass;
+    const char* ssidPath = "/ssid.txt";
+    const char* passPath = "/pass.txt";
     
-    public:
-        void 
-            connectToWiFi(),
-            handleWiFiReconnection(),
-            switchToAPMode(),
-            onWifiDisconnect(const WiFiEventStationModeDisconnected& event),
-            onWifiConnect(const WiFiEventStationModeGotIP& event),
-            initWiFi(AsyncWebServer *server);
+    // Connection state
+    unsigned long wifiConnectStartTime = 0;
+    unsigned long lastDisconnectTime = 0;
+    int connectionAttempts = 0;
+    bool shouldReconnect = false;
     
-    private:
-        static const int MAX_WIFI_ATTEMPTS = 3;
-        static const unsigned long WIFI_TIMEOUT = 30000;  // 30 seconds
-        static const unsigned long RECONNECT_DELAY = 5000;  // 5 seconds
-        
-        int connectionAttempts = 0;
-        unsigned long wifiConnectStartTime = 0;
-        unsigned long lastDisconnectTime = 0;
-        bool shouldReconnect = false;
-
-        AsyncWebServer *server;
-        // WiFi
-        WiFiEventHandler wifiConnectHandler;
-        WiFiEventHandler wifiDisconnectHandler;
-        Ticker wifiReconnectTimer;
-
-        // WiFi Setup HTTP POST request
-        const char* PARAM_INPUT_1 = "ssid";
-        const char* PARAM_INPUT_2 = "pass";
-
-        // WiFi Setup Variables
-        String ssid;
-        String pass;
-
-        // WiFi Setup Paths
-        const char* ssidPath = "/ssid.txt";
-        const char* passPath = "/pass.txt";
-
+    // Event handlers
+    WiFiEventHandler wifiConnectHandler;
+    WiFiEventHandler wifiDisconnectHandler;
+    
+    // Private methods
+    void connectToWiFi();
+    void onWifiConnect(const WiFiEventStationModeGotIP& event);
+    void onWifiDisconnect(const WiFiEventStationModeDisconnected& event);
+    void switchToAPMode();
+    void switchToStaMode();
+    String getBestBSSID();
+    void convertBSSIDStringToBytes(const String& bssidStr, uint8_t* bssidBytes);
+    
+public:
+    void initWiFi(AsyncWebServer* server);
+    void handleWiFiReconnection();
+    wl_status_t getStatus() { return WiFi.status(); }
+    String getLocalIP() { return WiFi.localIP().toString(); }
+    int getRSSI() { return WiFi.RSSI(); }
 };
 
 extern WifiClass Wifi;
