@@ -2,12 +2,13 @@
 
 WifiClass Wifi;
 
-void WifiClass::initWiFi(AsyncWebServer *server) {
+void WifiClass::initWiFi(AsyncWebServer *server, std::function<void(bool)> alexaCb) {
     this->server = server;
+    this->alexaCallback = alexaCb;
     
     // Load WiFi credentials
-    ssid = Filesys.readFile(ssidPath);
-    pass = Filesys.readFile(passPath);
+    ssid = Filesys.readFirstLine(ssidPath);
+    pass = Filesys.readFirstLine(passPath);
   
     if(ssid == "" || pass == "") {
         Serial.println("No WiFi credentials found. Starting in Access Point Mode");
@@ -55,6 +56,14 @@ void WifiClass::onWifiConnect(const WiFiEventStationModeGotIP& event) {
     Serial.printf("Channel: %d\n", WiFi.channel());
     Serial.printf("BSSID: %s\n", WiFi.BSSIDstr().c_str());
     Serial.println("===================================\n");
+    
+    // Initialize MQTT when wifi is connected
+    Mqtt.initMQTT(server);
+
+    // Initialize Alexa when wifi is connected
+    if (alexaCallback) {
+        Alexa.initAlexa(server, alexaCallback);  
+    }
 }
 
 void WifiClass::onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
@@ -181,32 +190,35 @@ void WifiClass::handleWiFiReconnection() {
         wifiConnectStartTime > 0 && 
         millis() - wifiConnectStartTime > WIFI_TIMEOUT) {
         
-        Serial.println("WiFi connection timeout detected");
-        wifiConnectStartTime = 0;  // Clear the timer
-        
-        if (connectionAttempts < MAX_WIFI_ATTEMPTS) {
-            Serial.println("Retrying connection...");
-            connectToWiFi();
-        } else {
-            Serial.println("Max attempts reached, switching to AP mode");
-            switchToAPMode();
+        // Check if we're actually in a connecting state
+        wl_status_t status = WiFi.status();
+        if (status == WL_DISCONNECTED || status == WL_IDLE_STATUS || status == WL_NO_SSID_AVAIL) {
+            Serial.println("WiFi connection timeout detected");
+            wifiConnectStartTime = 0;  // Clear the timer
+            
+            if (connectionAttempts < MAX_WIFI_ATTEMPTS) {
+                Serial.println("Retrying connection...");
+                connectToWiFi();
+            } else {
+                Serial.println("Max attempts reached, switching to AP mode");
+                switchToAPMode();
+            }
         }
         return;
     }
     
+    // Handle scheduled reconnection
     if (shouldReconnect && 
         millis() - lastDisconnectTime > RECONNECT_DELAY) {
         shouldReconnect = false;
         
-        // Only reconnect if we're not already connected
         if (WiFi.status() != WL_CONNECTED) {
             Serial.println("Initiating scheduled reconnection...");
             connectToWiFi();
-        } else {
-            Serial.println("Already connected, canceling scheduled reconnection");
         }
     }
 }
+
 
 void WifiClass::switchToAPMode() {
     // Don't switch to AP mode if we're successfully connected

@@ -10,7 +10,9 @@ class FilesysClass {
             writeFile(const char* path, const char* data),
             initFS();
         
-        String readFile(const char* path);
+        String
+            readFirstLine(const char* path),
+            readEntireFile(const char* path);
     
     private:
 };

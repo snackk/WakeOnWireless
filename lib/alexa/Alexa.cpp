@@ -2,20 +2,35 @@
 
 AlexaClass Alexa;
 
-void AlexaClass::initAlexa(std::function<void(bool)> onMessageFunc) {
-  fauxmo.addDevice(ALEXA_DEVICE_NAME);
-  
-  fauxmo.setPort(80);
-  fauxmo.enable(true);
-  Serial.println("[FAUXMO] - Setup done");
+void AlexaClass::initAlexa(AsyncWebServer* server, std::function<void(bool)> onMessageFunc) {
+    // Use shared AsyncWebServer
+    fauxmo.createServer(false);
+    fauxmo.setPort(80);        // required for Alexa Gen3+ devices
+    fauxmo.enable(true);
 
-  fauxmo.onSetState([&](unsigned char deviceId, const char* deviceName, bool state, unsigned char value) {
+    // Alexa device(s)
+    fauxmo.addDevice(ALEXA_DEVICE_NAME);   
 
-    Serial.printf("[FAUXMO] - Device #%d (%s) state: %s value: %d\n", deviceId, deviceName, state ? "ON" : "OFF", value);
-    onMessageFunc(state);
-  });
+    Serial.println("[FAUXMO] - Setup done via AsyncWebServer");
+
+    fauxmo.onSetState([=](unsigned char deviceId, const char* deviceName, bool state, unsigned char value) {
+        Serial.printf("[FAUXMO] - Device #%d (%s) state: %s value: %d\n",
+                     deviceId, deviceName, state ? "ON" : "OFF", value);
+        onMessageFunc(state);
+    });
+
+    server->onNotFound([&](AsyncWebServerRequest *request){
+        if (fauxmo.process(request->client(), request->method() == HTTP_GET, request->url(), "")) {
+            return; // Handle if Alexa request
+        }
+        
+        request->send(404, "text/plain", "Not found");
+    });
 }
 
 void AlexaClass::loopAlexa() {
-    fauxmo.handle(); 
+    // Only handle if WiFi is connected
+    if (WiFi.status() == WL_CONNECTED) {
+        fauxmo.handle(); 
+    }
 }

@@ -11,7 +11,7 @@
 #include <Filesys.h>
 
 class MqttClass {
-    
+
     public:
         void
             initMQTT(AsyncWebServer *server),
@@ -45,6 +45,11 @@ class MqttClass {
         String mqttPassword;
         String mqttHostname;
         String mqttTopic;
+
+        // NTP state 
+        bool ntpSyncStarted = false;
+        bool ntpSynced = false;
+        unsigned long ntpSyncTime = 0;
             
         WiFiClientSecure espClient;
         PubSubClient* client;
@@ -57,6 +62,8 @@ class MqttClass {
             initDateTime(),
             reconnect(),
             callback(char* topic, byte* payload, unsigned int length);
+        
+        bool isNTPSynced();
 };
 
 extern MqttClass Mqtt;

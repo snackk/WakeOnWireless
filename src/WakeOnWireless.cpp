@@ -4,138 +4,108 @@
 
 #include <ElegantOTA.h>
 
-//#include <Alexa.h>
 #include <Filesys.h>
 #include <Mqtt.h>
 #include <Wifi.h>
+#include <Alexa.h>
 
-
-const char* VERSION = "1.0.9";
-
+const char* VERSION = "1.0.10";
 
 // AsyncWebServer on port 80
 AsyncWebServer server(80);
-
 
 // GPIO LED
 const int ledPin = 2;
 String ledState;
 
-
 // GPIO switch
 const int WOL = 5;
 
-
 // ESP restart
 boolean restart = false;
-
 
 void initAsyncWebServer();
 String processor(const String& var);
 void initGPIO();
 void pushPwr();
-
+void handleAlexaCommand(bool state);
 
 void setup() {
-  // Initialize GPIO
-  initGPIO();
 
+    // Initialize GPIO
+    initGPIO();
 
-  // Initialize Serial port
-  Serial.begin(115200);
+    // Initialize Serial port
+    Serial.begin(115200);
 
+    // Initialize File System
+    Filesys.initFS();
 
-  // Initialize File System
-  Filesys.initFS();
+    // Initialize WiFi
+    Wifi.initWiFi(&server, handleAlexaCommand);
 
-
-  // Initialize WiFi (STATION MODE OR ACCESS POINT)
-  Wifi.initWiFi(&server);
-
-
-  // Initialize OTA
-  ElegantOTA.begin(&server);
-  
-  // Initialize Web Server 
-  initAsyncWebServer();
-
-
-  if(WiFi.isConnected()) {
+    // Initialize OTA
+    ElegantOTA.begin(&server);
     
-    // Initialize Alexa
-    /*
-    Alexa.initAlexa([](bool state) {
-      digitalWrite(ledPin, state ? HIGH : LOW);
-    });
-    */
-
-
-    // Initialize MQTTT
-    Mqtt.initMQTT(&server);
-  }
+    // Initialize Web Server 
+    initAsyncWebServer();
 }
 
-
 void loop() {
-  Wifi.handleWiFiReconnection();
+    Wifi.handleWiFiReconnection();
+    Mqtt.mqqtLoop(); 
+    ElegantOTA.loop();
+    Alexa.loopAlexa();
 
-  if (restart) {
-    delay(5000);
-    ESP.restart();
-  } 
-  
-  Mqtt.mqqtLoop();
-  //Alexa.loopAlexa();
-  
-  // Add ElegantOTA loop handling
-  ElegantOTA.loop();
+    if (restart) {
+        delay(5000);
+        ESP.restart();
+    } 
 }
 
 
 // Initialize GPIO
 void initGPIO() {
-  // Set GPIO 4 (switch) as an OUTPUT
-  pinMode(WOL, OUTPUT);
-  digitalWrite(WOL, LOW);
 
-  // Set GPIO 2 as an OUTPUT
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
+    // Set GPIO 4 (switch) as an OUTPUT
+    pinMode(WOL, OUTPUT);
+    digitalWrite(WOL, LOW);
+
+    // Set GPIO 2 as an OUTPUT
+    pinMode(ledPin, OUTPUT);
+    digitalWrite(ledPin, LOW);
 }
-
 
 // Templating with HTML pages
 // Replaces %VAR% from HTML
 String processor(const String& var) {
-  if(var == "LED_STATE") {
-    if(!digitalRead(ledPin)) {
-      ledState = "ON";
+    if(var == "LED_STATE") {
+        if(!digitalRead(ledPin)) {
+            ledState = "ON";
+        } else {
+            ledState = "OFF";
+        }
+        return ledState;
     }
-    else {
-      ledState = "OFF";
+
+
+    //TODO - This isn't doing anything atm.
+    if(var == "IP") {
+        return "aaaa";
     }
-    return ledState;
-  }
 
 
-  //TODO - This isn't doing anything atm.
-  if(var == "IP") {
-    return "aaaa";
-  }
+    if(var == "MQTT_STATE") {
+        return Mqtt.isMqttEnabled();
+    }
 
 
-  if(var == "MQTT_STATE") {
-    return Mqtt.isMqttEnabled();
-  }
-
-
-  if(var == "VERSION") {
-    return VERSION;
-  }
-  
-  return String();
+    if(var == "VERSION") {
+        return VERSION;
+    }
+    
+    return String();
 }
-
 
 void initAsyncWebServer() {
     // Dynamic root handler - serves different pages based on WiFi status
@@ -152,8 +122,7 @@ void initAsyncWebServer() {
     // Control routes (only work when connected)
     server.on("/led_on", HTTP_GET, [](AsyncWebServerRequest *request) {
         if (WiFi.status() == WL_CONNECTED) {
-            pushPwr();
-            digitalWrite(ledPin, LOW);
+            handleAlexaCommand(true);
             request->send(LittleFS, "/index.html", "text/html", false, processor);
         } else {
             request->send(400, "text/plain", "WiFi not connected");
@@ -162,7 +131,7 @@ void initAsyncWebServer() {
 
     server.on("/led_off", HTTP_GET, [](AsyncWebServerRequest *request) {
         if (WiFi.status() == WL_CONNECTED) {
-            digitalWrite(ledPin, HIGH);
+            handleAlexaCommand(false);
             request->send(LittleFS, "/index.html", "text/html", false, processor);
         } else {
             request->send(400, "text/plain", "WiFi not connected");
@@ -216,27 +185,13 @@ void initAsyncWebServer() {
     Serial.println("Dynamic web server started");
 }
 
-
-void pushPwr1() {
-    Serial.println("Power button triggered");
-    
-    // Ensure we start from OFF state
-    digitalWrite(WOL, HIGH);
-    delay(100);
-    
-    // Press and hold
-    digitalWrite(WOL, LOW);
-    Serial.println("Power button pressed");
-    delay(500);  // Try 500ms duration
-    
-    // Release
-    digitalWrite(WOL, HIGH);
-    Serial.println("Power button released");
-    
-    // Visual confirmation
-    digitalWrite(ledPin, HIGH);
-    delay(200);
-    digitalWrite(ledPin, LOW);
+void handleAlexaCommand(bool state) {
+    if (state) {
+        pushPwr();
+        digitalWrite(ledPin, LOW);
+    } else {
+        digitalWrite(ledPin, HIGH);
+    }
 }
 
 void pushPwr() {
@@ -249,9 +204,9 @@ void pushPwr() {
     // Press and hold
     digitalWrite(WOL, HIGH);
     Serial.println("Power button pressed");
-    delay(500);  // Try 500ms duration
+    delay(500);  // 500ms duration
     
-    // Release
+    // Release button
     digitalWrite(WOL, LOW);
     Serial.println("Power button released");
 }

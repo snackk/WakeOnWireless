@@ -2,12 +2,13 @@
 #define Alexa_H_
 
 #include <fauxmoESP.h>
+#include <ESPAsyncWebServer.h>
 
 class AlexaClass {
     
     public:
         void
-            initAlexa(std::function<void(bool)> onMessageFunc),
+            initAlexa(AsyncWebServer* server, std::function<void(bool)> onMessageFunc),
             loopAlexa();
     
     private:
