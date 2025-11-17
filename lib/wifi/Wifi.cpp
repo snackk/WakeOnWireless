@@ -1,4 +1,7 @@
 #include <Wifi.h>
+extern "C" {
+  #include "user_interface.h"
+}
 
 WifiClass Wifi;
 
@@ -20,6 +23,8 @@ void WifiClass::initWiFi(AsyncWebServer *server, std::function<void(bool)> alexa
 }
 
 void WifiClass::switchToStaMode() {
+    wifi_set_phy_mode(PHY_MODE_11G);
+
     WiFi.mode(WIFI_STA);
 
     WiFi.setAutoReconnect(true);
@@ -177,6 +182,7 @@ void WifiClass::connectToWiFi() {
     Serial.printf("Target Channel: %d\n", targetChannel);
     
     WiFi.begin(ssid.c_str(), pass.c_str(), targetChannel, bssidBytes, true);
+    delay(500);
     
     // Set connection tracking variables
     wifiConnectStartTime = millis();
