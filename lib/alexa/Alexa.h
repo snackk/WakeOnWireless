@@ -12,7 +12,7 @@ class AlexaClass {
             loopAlexa();
     
     private:
-        const char* ALEXA_DEVICE_NAME = "SOUSA";
+        const char* ALEXA_DEVICE_NAME = "Remote PC";
         fauxmoESP fauxmo;
 };
 

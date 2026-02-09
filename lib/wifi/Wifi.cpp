@@ -61,9 +61,6 @@ void WifiClass::onWifiConnect(const WiFiEventStationModeGotIP& event) {
     Serial.printf("Channel: %d\n", WiFi.channel());
     Serial.printf("BSSID: %s\n", WiFi.BSSIDstr().c_str());
     Serial.println("===================================\n");
-    
-    // Initialize MQTT when wifi is connected
-    Mqtt.initMQTT(server);
 
     // Initialize Alexa when wifi is connected
     if (alexaCallback) {

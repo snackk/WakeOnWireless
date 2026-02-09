@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Console - WoW</title>
+    <style>
+        body { 
+            font-family: 'Courier New', monospace; 
+            background: #0f172a; /* Azul escuro combinando com o dashboard */
+            color: #d4d4d4; 
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { color: #3b82f6; text-align: center; font-size: 24px; }
+        #console { 
+            background: #1e293b; 
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 15px; 
+            height: 70vh; 
+            overflow-y: auto; 
+            font-size: 14px;
+            line-height: 1.5;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .log-line { 
+            margin: 2px 0; 
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border-bottom: 1px solid #2d3748;
+            padding: 2px 0;
+        }
+        .timestamp { color: #64748b; font-size: 12px; }
+        .error { color: #f48771; font-weight: bold; }
+        .success { color: #89d185; }
+        .warning { color: #dcdcaa; }
+        .controls {
+            margin-top: 15px;
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        button {
+            background: #334155;
+            color: white;
+            border: 1px solid #475569;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        button:hover { background: #475569; }
+        .btn-back { background: #0e639c; }
+        .btn-back:hover { background: #1177bb; }
+        
+        .status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 15px;
+            border-radius: 5px;
+            background: #333;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .connected { background: #22c55e !important; color: #000; }
+        .disconnected { background: #ef4444 !important; color: #fff; }
+    </style>
+</head>
+<body>
+    <h1><i class="fas fa-terminal"></i> System Console</h1>
+    <div class="status" id="status">Connecting...</div>
+    
+    <div id="console"></div>
+    
+    <div class="controls">
+        <button onclick="clearConsole()">
+            <i class="fas fa-eraser"></i> Clear Console
+        </button>
+        <button class="btn-back" onclick="location.href='/'">
+            <i class="fas fa-home"></i> Back to Dashboard
+        </button>
+    </div>
+    
+    <script>
+        const console_div = document.getElementById('console');
+        const status_div = document.getElementById('status');
+        let ws;
+        let autoScroll = true;
+        
+        function connect() {
+            // Tenta ligar ao WebSocket no ESP12S
+            ws = new WebSocket('ws://' + window.location.hostname + '/ws');
+            
+            ws.onopen = function() {
+                addLog('System: Connection established', 'success');
+                status_div.textContent = '🟢 Online';
+                status_div.className = 'status connected';
+            };
+            
+            ws.onclose = function() {
+                addLog('System: Connection lost. Retrying...', 'error');
+                status_div.textContent = '🔴 Offline';
+                status_div.className = 'status disconnected';
+                setTimeout(connect, 3000);
+            };
+            
+            ws.onmessage = function(event) {
+                // Recebe dados do Serial/Logs do ESP
+                addLog(event.data);
+            };
+        }
+        
+        function addLog(message, type = '') {
+            const timestamp = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            line.className = 'log-line ' + type;
+            line.innerHTML = '<span class="timestamp">[' + timestamp + ']</span> ' + 
+                           escapeHtml(message);
+            console_div.appendChild(line);
+            
+            if (autoScroll) {
+                console_div.scrollTop = console_div.scrollHeight;
+            }
+            
+            // Limite de 500 linhas para não pesar o browser
+            if (console_div.children.length > 500) {
+                console_div.removeChild(console_div.firstChild);
+            }
+        }
+        
+        function clearConsole() {
+            console_div.innerHTML = '';
+            addLog('Console cleared', 'warning');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Detetar scroll manual para pausar o auto-scroll
+        console_div.addEventListener('scroll', function() {
+            autoScroll = (console_div.scrollTop + console_div.clientHeight >= 
+                         console_div.scrollHeight - 50);
+        });
+        
+        connect();
+    </script>
+</body>
+</html>

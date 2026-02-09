@@ -5,14 +5,14 @@
 #include <ElegantOTA.h>
 
 #include <Filesys.h>
-#include <Mqtt.h>
 #include <Wifi.h>
 #include <Alexa.h>
 
-const char* VERSION = "1.0.10";
+const char* VERSION = "1.0.11";
 
 // AsyncWebServer on port 80
 AsyncWebServer server(80);
+AsyncWebSocket ws("/ws"); 
 
 // GPIO LED
 const int ledPin = 2;
@@ -25,10 +25,12 @@ const int WOL = 5;
 boolean restart = false;
 
 void initAsyncWebServer();
-String processor(const String& var);
 void initGPIO();
-void pushPwr();
+void pushPwrOn();
+void pushPwrOff();
 void handleAlexaCommand(bool state);
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+void webLog(String message); 
 
 void setup() {
 
@@ -47,15 +49,20 @@ void setup() {
     // Initialize OTA
     ElegantOTA.begin(&server);
     
+    // Initialize WebSocket
+    ws.onEvent(onWsEvent);
+    server.addHandler(&ws);
+
+    
     // Initialize Web Server 
     initAsyncWebServer();
 }
 
 void loop() {
     Wifi.handleWiFiReconnection();
-    Mqtt.mqqtLoop(); 
     ElegantOTA.loop();
     Alexa.loopAlexa();
+    ws.cleanupClients();
 
     if (restart) {
         delay(5000);
@@ -63,6 +70,19 @@ void loop() {
     } 
 }
 
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    if (type == WS_EVT_CONNECT) {
+        client->text("Connected to PC Controller");
+    }
+}
+
+// Send log message to WebSocket
+void webLog(String message) {
+    Serial.println(message);
+    if (ws.count() > 0) {
+        ws.textAll(message);
+    }
+}
 
 // Initialize GPIO
 void initGPIO() {
@@ -76,69 +96,43 @@ void initGPIO() {
     digitalWrite(ledPin, LOW);
 }
 
-// Templating with HTML pages
-// Replaces %VAR% from HTML
-String processor(const String& var) {
-    if(var == "LED_STATE") {
-        if(!digitalRead(ledPin)) {
-            ledState = "ON";
-        } else {
-            ledState = "OFF";
-        }
-        return ledState;
-    }
-
-
-    //TODO - This isn't doing anything atm.
-    if(var == "IP") {
-        return "aaaa";
-    }
-
-
-    if(var == "MQTT_STATE") {
-        return Mqtt.isMqttEnabled();
-    }
-
-
-    if(var == "VERSION") {
-        return VERSION;
-    }
-    
-    return String();
-}
-
 void initAsyncWebServer() {
-    // Dynamic root handler - serves different pages based on WiFi status
+
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         if (WiFi.getMode() == WIFI_AP || WiFi.status() != WL_CONNECTED) {
-            // AP Mode or not connected - serve WiFi setup page
             request->send(LittleFS, "/wifi_setup.html", "text/html");
         } else {
-            // Connected to WiFi - serve main dashboard
-            request->send(LittleFS, "/index.html", "text/html", false, processor);
+            request->send(LittleFS, "/index.html", "text/html");
         }
     });
 
-    // Control routes (only work when connected)
+    server.on("/api/firmware", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String json = "{\"version\":\"" + String(VERSION) + "\"}";
+        request->send(200, "application/json", json);
+    });
+
+    // Console page
+    server.on("/console", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(LittleFS, "/console.html", "text/html");
+    });
+
+    server.on("^\\/api\\/state\\/(ON|OFF)$", HTTP_PUT, [](AsyncWebServerRequest *request) {
+        String state = request->pathArg(0);
+        bool powerOn = (state == "ON");
+        
+        webLog("API command : Power " + state);
+    
+        powerOn ? pushPwrOn() : pushPwrOff();
+        request->send(200, "application/json", "{\"result\":\"ok\"}");
+    });
+
+    // TODO refactor - Raspberry handler for Alexa
     server.on("/led_on", HTTP_GET, [](AsyncWebServerRequest *request) {
-        if (WiFi.status() == WL_CONNECTED) {
-            handleAlexaCommand(true);
-            request->send(LittleFS, "/index.html", "text/html", false, processor);
-        } else {
-            request->send(400, "text/plain", "WiFi not connected");
-        }
+        pushPwrOn();
+        request->send(302, "text/plain", "OK");
     });
 
-    server.on("/led_off", HTTP_GET, [](AsyncWebServerRequest *request) {
-        if (WiFi.status() == WL_CONNECTED) {
-            handleAlexaCommand(false);
-            request->send(LittleFS, "/index.html", "text/html", false, processor);
-        } else {
-            request->send(400, "text/plain", "WiFi not connected");
-        }
-    });
-
-    // WiFi setup POST handler (works in AP mode)
+    // WiFi setup POST handler
     server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
         String newSSID = "";
         String newPass = "";
@@ -160,42 +154,28 @@ void initAsyncWebServer() {
         }
         
         request->send(LittleFS, "/wifi_setup_success.html", "text/html");
-        
-        // Restart to connect with new credentials
         delay(2000);
         ESP.restart();
     });
 
-    // Status API endpoint
-    server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-        String json = "{";
-        json += "\"wifi_mode\":\"" + String(WiFi.getMode() == WIFI_AP ? "AP" : "STA") + "\",";
-        json += "\"connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
-        json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-        json += "\"ssid\":\"" + WiFi.SSID() + "\"";
-        json += "}";
-        request->send(200, "application/json", json);
-    });
-
-    // Serve static files
+    // Serve static files (CSS, JS, Favicon, etc)
     server.serveStatic("/", LittleFS, "/");
     
-    // Start server
     server.begin();
-    Serial.println("Dynamic web server started");
+    webLog("Web server updated for PC Control");
 }
 
 void handleAlexaCommand(bool state) {
     if (state) {
-        pushPwr();
+        pushPwrOn();
         digitalWrite(ledPin, LOW);
     } else {
         digitalWrite(ledPin, HIGH);
     }
 }
 
-void pushPwr() {
-    Serial.println("Power button triggered");
+void pushPwrOn() {
+    webLog("Power button triggered");
     
     // Ensure we start from OFF state
     digitalWrite(WOL, LOW);
@@ -203,10 +183,26 @@ void pushPwr() {
     
     // Press and hold
     digitalWrite(WOL, HIGH);
-    Serial.println("Power button pressed");
+    webLog("Power button pressed");
     delay(500);  // 500ms duration
     
     // Release button
     digitalWrite(WOL, LOW);
-    Serial.println("Power button released");
+    webLog("Power button released");
+}
+
+void pushPwrOff() {
+    webLog("Force Shutdown triggered (5s hold)");
+    
+    digitalWrite(WOL, LOW);
+    delay(100);
+    
+    digitalWrite(WOL, HIGH);
+    webLog("Power button being held...");
+    
+    // Segura o botão por 5000ms (5 segundos)
+    delay(5000); 
+    
+    digitalWrite(WOL, LOW);
+    webLog("Power button released after 5s");
 }
