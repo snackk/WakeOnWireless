@@ -9,7 +9,7 @@ void AlexaClass::initAlexa(AsyncWebServer* server, std::function<void(bool)> onM
     fauxmo.enable(true);
 
     // Alexa device(s)
-    fauxmo.addDevice(ALEXA_DEVICE_NAME);   
+    fauxmo.addDevice(ALEXA_DEVICE_NAME); 
 
     Serial.println("[FAUXMO] - Setup done via AsyncWebServer");
 
@@ -19,9 +19,10 @@ void AlexaClass::initAlexa(AsyncWebServer* server, std::function<void(bool)> onM
         onMessageFunc(state);
     });
 
-    server->onNotFound([&](AsyncWebServerRequest *request){
-        if (fauxmo.process(request->client(), request->method() == HTTP_GET, request->url(), "")) {
-            return; // Handle if Alexa request
+    server->onNotFound([this](AsyncWebServerRequest *request){
+        String body = ""; 
+        if (fauxmo.process(request->client(), request->method() == HTTP_GET, request->url(), body)) {
+            return; 
         }
         
         request->send(404, "text/plain", "Not found");

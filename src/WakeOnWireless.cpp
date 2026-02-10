@@ -8,7 +8,7 @@
 #include <Wifi.h>
 #include <Alexa.h>
 
-const char* VERSION = "1.0.11";
+const char* VERSION = "1.0.12";
 
 // AsyncWebServer on port 80
 AsyncWebServer server(80);
@@ -21,8 +21,14 @@ String ledState;
 // GPIO switch
 const int WOL = 5;
 
-// ESP restart
-boolean restart = false;
+// ESP responsive delay / restart
+enum PowerState { IDLE, START_PRESS, HOLDING, RELEASING };
+PowerState currentPowerState = IDLE;
+
+unsigned long powerTimer = 0;
+unsigned long holdDuration = 0;
+unsigned long restartTimer = 0;
+boolean restartPending = false;
 
 void initAsyncWebServer();
 void initGPIO();
@@ -30,7 +36,8 @@ void pushPwrOn();
 void pushPwrOff();
 void handleAlexaCommand(bool state);
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-void webLog(String message); 
+void webLog(String message);
+void handlePowerStateMachine(); 
 
 void setup() {
 
@@ -42,7 +49,10 @@ void setup() {
 
     // Initialize File System
     Filesys.initFS();
-
+     
+    // Initialize Web Server 
+    initAsyncWebServer();
+    
     // Initialize WiFi
     Wifi.initWiFi(&server, handleAlexaCommand);
 
@@ -53,9 +63,8 @@ void setup() {
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
 
-    
-    // Initialize Web Server 
-    initAsyncWebServer();
+    server.begin();
+    webLog("Web server started for PC Control");
 }
 
 void loop() {
@@ -64,10 +73,43 @@ void loop() {
     Alexa.loopAlexa();
     ws.cleanupClients();
 
-    if (restart) {
-        delay(5000);
+    handlePowerStateMachine();
+    
+    if (restartPending && (millis() - restartTimer >= 5000)) {
         ESP.restart();
     } 
+}
+
+void triggerPowerAction(unsigned long duration) {
+    if (currentPowerState == IDLE) {
+        holdDuration = duration;
+        currentPowerState = START_PRESS;
+        powerTimer = millis();
+    }
+}
+
+void handlePowerStateMachine() {
+    switch (currentPowerState) {
+        case START_PRESS:
+            if (millis() - powerTimer >= 100) {
+                digitalWrite(WOL, HIGH);
+                webLog("Power button pressed...");
+                powerTimer = millis();
+                currentPowerState = HOLDING;
+            }
+            break;
+
+        case HOLDING:
+            if (millis() - powerTimer >= holdDuration) {
+                digitalWrite(WOL, LOW);
+                webLog("Power button released");
+                currentPowerState = IDLE;
+            }
+            break;
+            
+        default:
+            break;
+    }
 }
 
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
@@ -154,15 +196,13 @@ void initAsyncWebServer() {
         }
         
         request->send(LittleFS, "/wifi_setup_success.html", "text/html");
-        delay(2000);
-        ESP.restart();
+
+        restartTimer = millis();
+        restartPending = true;
     });
 
     // Serve static files (CSS, JS, Favicon, etc)
     server.serveStatic("/", LittleFS, "/");
-    
-    server.begin();
-    webLog("Web server updated for PC Control");
 }
 
 void handleAlexaCommand(bool state) {
@@ -175,34 +215,11 @@ void handleAlexaCommand(bool state) {
 }
 
 void pushPwrOn() {
-    webLog("Power button triggered");
-    
-    // Ensure we start from OFF state
-    digitalWrite(WOL, LOW);
-    delay(100);
-    
-    // Press and hold
-    digitalWrite(WOL, HIGH);
-    webLog("Power button pressed");
-    delay(500);  // 500ms duration
-    
-    // Release button
-    digitalWrite(WOL, LOW);
-    webLog("Power button released");
+    webLog("Action: Power ON/OFF (Short Press)");
+    triggerPowerAction(500); // 500ms
 }
 
 void pushPwrOff() {
-    webLog("Force Shutdown triggered (5s hold)");
-    
-    digitalWrite(WOL, LOW);
-    delay(100);
-    
-    digitalWrite(WOL, HIGH);
-    webLog("Power button being held...");
-    
-    // Segura o botão por 5000ms (5 segundos)
-    delay(5000); 
-    
-    digitalWrite(WOL, LOW);
-    webLog("Power button released after 5s");
+    webLog("Action: Force Shutdown (5s hold)");
+    triggerPowerAction(5000); // 5000ms
 }
