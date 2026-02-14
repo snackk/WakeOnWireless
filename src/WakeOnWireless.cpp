@@ -7,8 +7,10 @@
 #include <Filesys.h>
 #include <Wifi.h>
 #include <Alexa.h>
+#include <ESP8266mDNS.h>
 
-const char* VERSION = "1.0.12";
+const char* VERSION = "1.0.13";
+const char* devNamePath = "/dev_name.txt";
 
 // AsyncWebServer on port 80
 AsyncWebServer server(80);
@@ -38,6 +40,7 @@ void handleAlexaCommand(bool state);
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 void webLog(String message);
 void handlePowerStateMachine(); 
+void initmDNS();
 
 void setup() {
 
@@ -63,6 +66,9 @@ void setup() {
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
 
+    // Initialize mDNS
+    initmDNS();
+
     server.begin();
     webLog("Web server started for PC Control");
 }
@@ -70,6 +76,7 @@ void setup() {
 void loop() {
     Wifi.handleWiFiReconnection();
     ElegantOTA.loop();
+    MDNS.update();
     Alexa.loopAlexa();
     ws.cleanupClients();
 
@@ -78,6 +85,21 @@ void loop() {
     if (restartPending && (millis() - restartTimer >= 5000)) {
         ESP.restart();
     } 
+}
+
+void initmDNS() {
+    String devName = Filesys.readFirstLine(devNamePath);
+    if (devName.length() == 0) {
+        devName = "pc-switch";
+        Filesys.writeFile(devNamePath, devName.c_str());
+    }
+    
+    if (MDNS.begin(devName.c_str())) {
+        MDNS.addService("http", "tcp", 80); 
+        webLog("mDNS started: http://" + devName + ".local/");
+    } else {
+        webLog("Error starting mDNS");
+    }
 }
 
 void triggerPowerAction(unsigned long duration) {
@@ -176,8 +198,7 @@ void initAsyncWebServer() {
 
     // WiFi setup POST handler
     server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
-        String newSSID = "";
-        String newPass = "";
+        String newSSID = "", newPass = "", devName = "";
         
         int params = request->params();
         for(int i = 0; i < params; i++){
@@ -192,6 +213,10 @@ void initAsyncWebServer() {
                     newPass = p->value();
                     Filesys.writeFile("/pass.txt", newPass.c_str());
                 }
+                if (p->name() == "dev_name") {
+                    devName = p->value();
+                    Filesys.writeFile("/dev_name.txt", devName.c_str());
+                }                  
             }
         }
         
