@@ -51,6 +51,7 @@ void WifiClass::onWifiConnect(const WiFiEventStationModeGotIP& event) {
     wifiConnectStartTime = 0;
     shouldReconnect = false;
     lastDisconnectTime = 0;
+    isConnecting = false;
 
     Serial.println("\n=== WiFi Connected Successfully ===");
     Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
@@ -69,15 +70,20 @@ void WifiClass::onWifiConnect(const WiFiEventStationModeGotIP& event) {
 }
 
 void WifiClass::onWifiDisconnect(const WiFiEventStationModeDisconnected& event) {
+    // Ignore disconnect events if we're already handling reconnection
+    // or if we intentionally disconnected (switching to AP mode)
+    if (WiFi.getMode() == WIFI_AP) {
+        return;
+    }
+
     Serial.printf("\n=== WiFi Disconnected ===\n");
     Serial.printf("Reason Code: %d\n", event.reason);
     
-    if (connectionAttempts < MAX_WIFI_ATTEMPTS) {
+    // Only schedule a reconnect if one isn't already pending/in-progress
+    if (!shouldReconnect && !isConnecting) {
         shouldReconnect = true;
         lastDisconnectTime = millis();
-    } else {
-        Serial.println("Max connection attempts reached. Switching to AP mode...");
-        switchToAPMode();
+        Serial.println("Reconnection scheduled...");
     }
     Serial.println("========================\n");
 }
@@ -146,28 +152,35 @@ void WifiClass::convertBSSIDStringToBytes(const String& bssidStr, uint8_t* bssid
 void WifiClass::connectToWiFi() {
     Serial.printf("\n=== Connection Attempt #%d ===\n", connectionAttempts + 1);
     
-    // Scan for available networks
-    WiFi.scanNetworks();
-    
-    // Find the best (strongest signal) access point for our network
+    isConnecting = true;
+
+    // Scan for available networks and find best AP
     String bestBSSID = getBestBSSID();
     
     if (bestBSSID == "") {
         Serial.println("ERROR: Target network not found!");
+        isConnecting = false;
         connectionAttempts++;
         if (connectionAttempts >= MAX_WIFI_ATTEMPTS) {
+            Serial.println("Max attempts reached, switching to AP mode");
             switchToAPMode();
+        } else {
+            // Schedule another attempt
+            shouldReconnect = true;
+            lastDisconnectTime = millis();
         }
         return;
     }
     
-    // Get the channel BEFORE converting BSSID
+    // Get the channel from the scan results already in memory
     int targetChannel = 0;
-    int n = WiFi.scanNetworks(); // Fresh scan
-    for (int i = 0; i < n; i++) {
-        if (WiFi.BSSIDstr(i) == bestBSSID) {
-            targetChannel = WiFi.channel(i);
-            break;
+    int n = WiFi.scanComplete();
+    if (n > 0) {
+        for (int i = 0; i < n; i++) {
+            if (WiFi.BSSIDstr(i) == bestBSSID) {
+                targetChannel = WiFi.channel(i);
+                break;
+            }
         }
     }
     
@@ -179,8 +192,7 @@ void WifiClass::connectToWiFi() {
     Serial.printf("Target Channel: %d\n", targetChannel);
     
     WiFi.begin(ssid.c_str(), pass.c_str(), targetChannel, bssidBytes, true);
-    delay(500);
-    
+
     // Set connection tracking variables
     wifiConnectStartTime = millis();
     connectionAttempts++;
@@ -189,35 +201,42 @@ void WifiClass::connectToWiFi() {
 }
 
 void WifiClass::handleWiFiReconnection() {
-    if (WiFi.status() != WL_CONNECTED && 
-        wifiConnectStartTime > 0 && 
+    // Handle connection timeout
+    if (isConnecting && wifiConnectStartTime > 0 &&
         millis() - wifiConnectStartTime > WIFI_TIMEOUT) {
         
-        // Check if we're actually in a connecting state
-        wl_status_t status = WiFi.status();
-        if (status == WL_DISCONNECTED || status == WL_IDLE_STATUS || status == WL_NO_SSID_AVAIL) {
-            Serial.println("WiFi connection timeout detected");
-            wifiConnectStartTime = 0;  // Clear the timer
-            
-            if (connectionAttempts < MAX_WIFI_ATTEMPTS) {
-                Serial.println("Retrying connection...");
-                connectToWiFi();
-            } else {
-                Serial.println("Max attempts reached, switching to AP mode");
-                switchToAPMode();
-            }
+        Serial.println("WiFi connection timeout detected");
+        isConnecting = false;
+        wifiConnectStartTime = 0;
+
+        if (connectionAttempts >= MAX_WIFI_ATTEMPTS) {
+            Serial.println("Max attempts reached, switching to AP mode");
+            switchToAPMode();
+        } else {
+            // Schedule another retry after RECONNECT_DELAY
+            shouldReconnect = true;
+            lastDisconnectTime = millis();
         }
         return;
     }
     
-    // Handle scheduled reconnection
-    if (shouldReconnect && 
+    // Handle scheduled reconnection (after delay)
+    if (shouldReconnect && !isConnecting &&
         millis() - lastDisconnectTime > RECONNECT_DELAY) {
         shouldReconnect = false;
         
         if (WiFi.status() != WL_CONNECTED) {
-            Serial.println("Initiating scheduled reconnection...");
-            connectToWiFi();
+            if (connectionAttempts >= MAX_WIFI_ATTEMPTS) {
+                Serial.println("Max attempts reached, switching to AP mode");
+                switchToAPMode();
+            } else {
+                Serial.println("Initiating scheduled reconnection...");
+                connectToWiFi();
+            }
+        } else {
+            // We reconnected in the meantime (autoReconnect worked)
+            isConnecting = false;
+            connectionAttempts = 0;
         }
     }
 }
