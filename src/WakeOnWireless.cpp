@@ -9,7 +9,7 @@
 #include <Alexa.h>
 #include <ESP8266mDNS.h>
 
-const char* VERSION = "1.0.13";
+const char* VERSION = "1.0.14";
 const char* devNamePath = "/dev_name.txt";
 
 // AsyncWebServer on port 80
