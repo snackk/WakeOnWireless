@@ -9,9 +9,9 @@
 class WifiClass {
     private:
         // Constants
-        static const unsigned long RECONNECT_DELAY = 10000;     // 10 seconds
-        static const unsigned long WIFI_TIMEOUT = 1200000;       // 120 seconds
-        static const int MAX_WIFI_ATTEMPTS = 5;
+        static const unsigned long RECONNECT_DELAY = 10000;     // 10 seconds between retries
+        static const unsigned long WIFI_TIMEOUT = 30000;        // 30 seconds per connection attempt
+        static const int MAX_WIFI_ATTEMPTS = 10;
         static const int WEAK_SIGNAL_THRESHOLD = -80;           // dBm
 
         AsyncWebServer* server;
@@ -26,7 +26,8 @@ class WifiClass {
         unsigned long lastDisconnectTime = 0;
         int connectionAttempts = 0;
         bool shouldReconnect = false;
-        
+        bool isConnecting = false;
+
         // Event handlers
         WiFiEventHandler wifiConnectHandler;
         WiFiEventHandler wifiDisconnectHandler;
